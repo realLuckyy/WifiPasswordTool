@@ -5,11 +5,15 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using System.Security.Principal;
 using System.Diagnostics;
+using System.Threading;
 
 namespace WifiPasswordTool
 {
     internal static class Program
     {
+        private static Mutex mutex = null;
+        private const string AppName = "WifiPasswordTool_SingleInstance";
+
         /// <summary>
         /// The main entry point for the application.
         /// </summary>
@@ -19,6 +23,21 @@ namespace WifiPasswordTool
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             
+            // Single instance check
+            bool createdNew;
+            mutex = new Mutex(true, AppName, out createdNew);
+            
+            if (!createdNew)
+            {
+                // Application is already running
+                MessageBox.Show(
+                    "WiFi Password Manager is already running.", 
+                    "Application Already Running", 
+                    MessageBoxButtons.OK, 
+                    MessageBoxIcon.Information);
+                return;
+            }
+
             // Set up global exception handling
             Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
             Application.ThreadException += Application_ThreadException;
@@ -35,6 +54,14 @@ namespace WifiPasswordTool
                     "Critical Error", 
                     MessageBoxButtons.OK, 
                     MessageBoxIcon.Error);
+            }
+            finally
+            {
+                if (mutex != null)
+                {
+                    mutex.ReleaseMutex();
+                    mutex.Dispose();
+                }
             }
         }
 
@@ -70,13 +97,25 @@ namespace WifiPasswordTool
         {
             try
             {
+                // Release the mutex before restarting
+                if (mutex != null)
+                {
+                    mutex.ReleaseMutex();
+                    mutex.Dispose();
+                    mutex = null;
+                }
+
                 ProcessStartInfo proc = new ProcessStartInfo();
                 proc.UseShellExecute = true;
                 proc.WorkingDirectory = Environment.CurrentDirectory;
                 proc.FileName = Application.ExecutablePath;
                 proc.Verb = "runas";
+                
+                // Start the new process
                 Process.Start(proc);
-                Application.Exit();
+                
+                // Immediately exit this instance
+                Environment.Exit(0);
             }
             catch (Exception ex)
             {

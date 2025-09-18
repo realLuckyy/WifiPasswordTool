@@ -18,20 +18,29 @@ namespace WifiPasswordTool
     {
         private List<WifiProfile> wifiProfiles = new List<WifiProfile>();
         private bool isPasswordVisible = false;
+        private bool isRestartingAsAdmin = false;
 
         public Form1()
         {
             InitializeComponent();
-            CheckAdministratorPrivileges();
         }
 
         private void Form1_Load(object sender, EventArgs e)
         {
+            // Check admin privileges first, before loading anything
+            if (!CheckAdministratorPrivileges())
+            {
+                return; // Don't continue loading if restarting as admin
+            }
+            
             LoadWifiProfiles();
         }
 
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
+            // Don't process shortcuts if restarting as admin
+            if (isRestartingAsAdmin) return true;
+            
             // Handle keyboard shortcuts
             switch (keyData)
             {
@@ -55,7 +64,7 @@ namespace WifiPasswordTool
             return base.ProcessCmdKey(ref msg, keyData);
         }
 
-        private void CheckAdministratorPrivileges()
+        private bool CheckAdministratorPrivileges()
         {
             WindowsIdentity identity = WindowsIdentity.GetCurrent();
             WindowsPrincipal principal = new WindowsPrincipal(identity);
@@ -71,13 +80,36 @@ namespace WifiPasswordTool
                     
                 if (result == DialogResult.Yes)
                 {
-                    Program.RestartAsAdministrator();
+                    isRestartingAsAdmin = true;
+                    this.WindowState = FormWindowState.Minimized;
+                    this.ShowInTaskbar = false;
+                    
+                    // Use BeginInvoke to ensure the UI is updated before restarting
+                    this.BeginInvoke(new Action(() =>
+                    {
+                        Program.RestartAsAdministrator();
+                    }));
+                    
+                    return false; // Don't continue with form loading
+                }
+                else
+                {
+                    // User declined admin privileges, close the application
+                    this.BeginInvoke(new Action(() =>
+                    {
+                        Application.Exit();
+                    }));
+                    return false;
                 }
             }
+            
+            return true; // Has admin privileges, continue normally
         }
 
         private async void LoadWifiProfiles()
         {
+            if (isRestartingAsAdmin) return;
+            
             try
             {
                 SetStatus("Loading WiFi profiles...");
@@ -106,6 +138,8 @@ namespace WifiPasswordTool
                     }
                 });
 
+                if (isRestartingAsAdmin) return; // Check again after async operation
+
                 // Update UI on main thread
                 foreach (var profile in wifiProfiles)
                 {
@@ -122,9 +156,12 @@ namespace WifiPasswordTool
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error loading WiFi profiles: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                SetStatus("Error loading profiles");
-                ShowProgress(false);
+                if (!isRestartingAsAdmin)
+                {
+                    MessageBox.Show($"Error loading WiFi profiles: {ex.Message}", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    SetStatus("Error loading profiles");
+                    ShowProgress(false);
+                }
             }
         }
 
@@ -262,11 +299,14 @@ namespace WifiPasswordTool
 
         private void btnRefresh_Click(object sender, EventArgs e)
         {
-            LoadWifiProfiles();
+            if (!isRestartingAsAdmin)
+                LoadWifiProfiles();
         }
 
         private void btnShowPassword_Click(object sender, EventArgs e)
         {
+            if (isRestartingAsAdmin) return;
+            
             isPasswordVisible = !isPasswordVisible;
             btnShowPassword.Text = isPasswordVisible ? "🙈 Hide Password" : "👁 Show Password";
             showPasswordsToolStripMenuItem.Text = isPasswordVisible ? "Hide &Passwords" : "Show &Passwords";
@@ -283,6 +323,8 @@ namespace WifiPasswordTool
 
         private async void btnDeleteSelected_Click(object sender, EventArgs e)
         {
+            if (isRestartingAsAdmin) return;
+            
             if (listViewWifi.SelectedItems.Count == 0)
             {
                 MessageBox.Show("Please select a WiFi profile to delete.", "No Selection", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -315,6 +357,8 @@ namespace WifiPasswordTool
 
         private async void btnDeleteAll_Click(object sender, EventArgs e)
         {
+            if (isRestartingAsAdmin) return;
+            
             if (wifiProfiles.Count == 0)
             {
                 MessageBox.Show("No WiFi profiles to delete.", "No Profiles", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -386,6 +430,8 @@ namespace WifiPasswordTool
 
         private void btnExport_Click(object sender, EventArgs e)
         {
+            if (isRestartingAsAdmin) return;
+            
             if (wifiProfiles.Count == 0)
             {
                 MessageBox.Show("No WiFi profiles to export.", "No Data", MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -450,9 +496,12 @@ namespace WifiPasswordTool
 
         private void listViewWifi_SelectedIndexChanged(object sender, EventArgs e)
         {
-            btnShowPassword.Enabled = listViewWifi.Items.Count > 0;
-            btnDeleteSelected.Enabled = listViewWifi.SelectedItems.Count > 0;
-            deleteSelectedToolStripMenuItem.Enabled = listViewWifi.SelectedItems.Count > 0;
+            if (!isRestartingAsAdmin)
+            {
+                btnShowPassword.Enabled = listViewWifi.Items.Count > 0;
+                btnDeleteSelected.Enabled = listViewWifi.SelectedItems.Count > 0;
+                deleteSelectedToolStripMenuItem.Enabled = listViewWifi.SelectedItems.Count > 0;
+            }
         }
 
         private void exitToolStripMenuItem_Click(object sender, EventArgs e)
@@ -462,6 +511,8 @@ namespace WifiPasswordTool
 
         private void aboutToolStripMenuItem_Click(object sender, EventArgs e)
         {
+            if (isRestartingAsAdmin) return;
+            
             using (var aboutDialog = new AboutDialog())
             {
                 aboutDialog.ShowDialog(this);
@@ -470,6 +521,8 @@ namespace WifiPasswordTool
 
         private void label1_Click(object sender, EventArgs e)
         {
+            if (isRestartingAsAdmin) return;
+            
             try
             {
                 Process.Start("https://ko-fi.com/root");
@@ -487,7 +540,8 @@ namespace WifiPasswordTool
                 Invoke(new Action<string>(SetStatus), message);
                 return;
             }
-            toolStripStatusLabel.Text = message;
+            if (!isRestartingAsAdmin)
+                toolStripStatusLabel.Text = message;
         }
 
         private void ShowProgress(bool show)
@@ -497,7 +551,8 @@ namespace WifiPasswordTool
                 Invoke(new Action<bool>(ShowProgress), show);
                 return;
             }
-            progressBar.Visible = show;
+            if (!isRestartingAsAdmin)
+                progressBar.Visible = show;
         }
     }
 
